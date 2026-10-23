@@ -5,14 +5,10 @@ import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import Swal from "sweetalert2";
 import {
-  ArrowLeft,
   CheckCircle2,
   ChevronRight,
   Grid3X3,
-  Heart,
-  LogOut,
   Menu,
-  Minus,
   Package,
   Search,
   ShieldCheck,
@@ -28,6 +24,12 @@ import {
   Zap,
 } from "lucide-react";
 import * as yup from "yup";
+import ProfilePage from "./ProfilePage";
+import ProductDetailPage from "./ProductDetailPage";
+import { cartLineKey, cartMerchandise, referenceId } from "./cartData";
+import CartVariantPicker from "./CartVariantPicker";
+import "./cart.css";
+import { canBuySimpleProduct, categoryName, formatProductPrice, isVariableProduct, productAvailability, productOptions, sortProducts } from "./productData";
 import {
   authService,
   cartService,
@@ -42,7 +44,7 @@ import {
 } from "./api";
 
 const money = (value) =>
-  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
+  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(Number(value || 0));
 
 const loginSchema = yup.object({
   email: yup.string().trim().email("Enter a valid email").required("Email is required"),
@@ -58,7 +60,7 @@ const showSuccess = (message) => Swal.fire({ icon: "success", title: message, ti
 
 const productImage = (product) => mediaUrl(product?.images?.[0]) || "";
 const getCategoryId = (category) => (typeof category === "object" ? category?._id : category || "");
-const getCategoryName = (category) => (typeof category === "object" ? category?.name || category?.slug : category || "Uncategorized");
+const getCategoryName = categoryName;
 const getProductId = (product) => (typeof product === "object" ? product?._id : product || "");
 
 function App() {
@@ -89,7 +91,9 @@ function App() {
     refreshCart();
   }, [auth?.accessToken]);
 
-  const content = pathname === "/cart" ? (
+  const content = pathname === "/profile" ? (
+    <RequireAuth auth={auth}><ProfilePage onSessionExpired={() => syncAuth(null)} onLogout={() => syncAuth(null)} /></RequireAuth>
+  ) : pathname === "/cart" ? (
     <RequireAuth auth={auth}><CartPage onCartChange={refreshCart} /></RequireAuth>
   ) : pathname === "/login" ? (
     <AuthPage mode="login" auth={auth} onAuthChange={syncAuth} />
@@ -98,7 +102,7 @@ function App() {
   ) : pathname === "/products" ? (
     <ProductListingPage onCartChange={refreshCart} />
   ) : pathname?.startsWith("/products/") ? (
-    <ProductDetail onCartChange={refreshCart} />
+    <ProductDetailPage onCartChange={refreshCart} />
   ) : pathname?.startsWith("/category/") ? (
     <ProductListingPage onCartChange={refreshCart} />
   ) : (
@@ -107,21 +111,17 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Header auth={auth} onAuthChange={syncAuth} cartCount={cartCount} />
+      <Header auth={auth} cartCount={cartCount} />
       {content}
       <Footer />
     </div>
   );
 }
 
-function Header({ auth, onAuthChange, cartCount }) {
+function Header({ auth, cartCount }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const logout = () => {
-    onAuthChange(null);
-    setOpen(false);
-  };
   const submitSearch = (event) => {
     event.preventDefault();
     const nextSearch = search.trim();
@@ -154,7 +154,7 @@ function Header({ auth, onAuthChange, cartCount }) {
           {cartCount > 0 && <span>{cartCount}</span>}
         </Link>
         {auth?.accessToken ? (
-          <button className="ghost-link" onClick={logout}><LogOut size={17} /> Logout</button>
+          <Link href="/profile" onClick={() => setOpen(false)}><User size={17} /> My Account</Link>
         ) : (
           <Link className="primary-link" href="/login" onClick={() => setOpen(false)}><User size={17} /> Login</Link>
         )}
@@ -309,10 +309,7 @@ function ProductListingPage({ onCartChange }) {
         return [product.name, product.sku, product.description, getCategoryName(product.category)]
           .some((value) => String(value || "").toLowerCase().includes(search));
       });
-    if (sort === "price-low") return next.sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
-    if (sort === "price-high") return next.sort((a, b) => Number(b.price || 0) - Number(a.price || 0));
-    if (sort === "stock") return next.sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0));
-    return next;
+    return sortProducts(next, sort);
   }, [category, products, query, sort]);
 
   return (
@@ -387,8 +384,11 @@ function ProductListingPage({ onCartChange }) {
 
 function ProductCard({ product, onCartChange }) {
   const [saving, setSaving] = useState(false);
-  const out = Number(product.stock || 0) <= 0;
+  const variable = isVariableProduct(product);
+  const purchasable = canBuySimpleProduct(product);
+  const options = productOptions(product);
   const add = async () => {
+    if (!purchasable || saving) return;
     if (!getStoredAuth()?.accessToken) {
       Swal.fire({ icon: "info", title: "Login required", text: "Please login before adding products to cart.", confirmButtonColor: "#14666b" });
       return;
@@ -408,104 +408,32 @@ function ProductCard({ product, onCartChange }) {
     <article className="product-card">
       <Link className="product-media" href={`/products/${product._id}`}>
         <ImageWithFallback src={productImage(product)} alt={product.name} iconSize={44} />
-        <span className={`stock-chip ${out ? "out" : ""}`}>{out ? "Out of stock" : `${product.stock || 0} in stock`}</span>
+        <span className={`stock-chip ${!variable && !purchasable ? "out" : ""}`}>{productAvailability(product)}</span>
       </Link>
       <div className="product-body">
         <span className="category-name">{getCategoryName(product.category)}</span>
         <Link href={`/products/${product._id}`}><h3>{product.name}</h3></Link>
         <p>{product.description || product.sku}</p>
-        <div className="rating-row">
-          <span><Star size={13} /> 4.2</span>
-          <small>{Number(product.stock || 0) > 0 ? "In stock" : "Sold out"}</small>
+        <div className="product-option-summary" title={variable ? options.map((option) => `${option.name}: ${option.values.join(", ")}`).join(" · ") : product.sku}>
+          {variable ? options.map((option) => `${option.values.length} ${option.name.toLowerCase()} options`).join(" · ") || "Multiple options" : product.sku ? `SKU: ${product.sku}` : "Simple product"}
         </div>
         <div className="product-footer">
           <div>
-            <strong>{money(product.price)}</strong>
-            <small>Free delivery</small>
+            <strong className={variable ? "option-price-label" : undefined}>{variable ? "See option prices" : formatProductPrice(product.price)}</strong>
+            <small>{variable ? "Price depends on selection" : productAvailability(product)}</small>
           </div>
-          <button className="icon-action" aria-label="Wishlist"><Heart size={18} /></button>
         </div>
-        <button className="primary-btn full" disabled={out || saving} onClick={add}>
+        {variable ? <Link className="primary-btn full" href={`/products/${product._id}`}>View options <ChevronRight size={17} /></Link> : <button className="primary-btn full" disabled={!purchasable || saving} onClick={add}>
           <ShoppingCart size={17} />
-          {saving ? "Adding..." : out ? "Unavailable" : "Add to Cart"}
-        </button>
+          {saving ? "Adding..." : !purchasable ? "Unavailable" : "Add to Cart"}
+        </button>}
       </div>
     </article>
   );
 }
 
-function ProductDetail({ onCartChange }) {
-  const { id } = useParams();
-  const router = useRouter();
-  const [product, setProduct] = useState(null);
-  const [quantity, setQuantity] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setLoading(true);
-    productService.get(id)
-      .then(setProduct)
-      .catch((error) => showError(getApiError(error, "Unable to load product")))
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  const add = async () => {
-    if (!getStoredAuth()?.accessToken) {
-      router.push("/login");
-      return;
-    }
-    setSaving(true);
-    try {
-      await cartService.add({ productId: product._id, quantity: Number(quantity) });
-      showSuccess("Added to cart");
-      onCartChange?.();
-    } catch (error) {
-      showError(getApiError(error, "Unable to add to cart"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading) return <EmptyState title="Loading product..." />;
-  if (!product) return <EmptyState title="Product not found" />;
-  const out = Number(product.stock || 0) <= 0;
-
-  return (
-    <main className="detail-page">
-      <button className="back-btn" onClick={() => router.back()}><ArrowLeft size={17} /> Back</button>
-      <section className="product-detail">
-        <div className="detail-media">
-          <ImageWithFallback src={productImage(product)} alt={product.name} iconSize={74} />
-        </div>
-        <div className="detail-copy">
-          <span className="eyebrow">{getCategoryName(product.category)}</span>
-          <h1>{product.name}</h1>
-          <p>{product.description}</p>
-          <strong className="detail-price">{money(product.price)}</strong>
-          <div className="detail-stats">
-            <span>SKU <b>{product.sku}</b></span>
-            <span>Stock <b>{product.stock ?? 0}</b></span>
-            <span>Reorder <b>{product.reorderLevel ?? 0}</b></span>
-          </div>
-          <div className="buy-row">
-            <div className="qty-control">
-              <button onClick={() => setQuantity((value) => Math.max(1, Number(value) - 1))}><Minus size={16} /></button>
-              <input value={quantity} type="number" min="1" max={product.stock || 1} onChange={(event) => setQuantity(event.target.value)} />
-              <button onClick={() => setQuantity((value) => Math.min(Number(product.stock || 1), Number(value) + 1))}>+</button>
-            </div>
-            <button className="primary-btn" disabled={out || saving} onClick={add}>
-              <ShoppingCart size={18} />
-              {saving ? "Adding..." : out ? "Out of Stock" : "Add to Cart"}
-            </button>
-          </div>
-        </div>
-      </section>
-    </main>
-  );
-}
-
 function CartPage({ onCartChange }) {
+  const router = useRouter();
   const [cart, setCart] = useState({ items: [] });
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -532,9 +460,9 @@ function CartPage({ onCartChange }) {
   }, []);
 
   const removeItem = async (item) => {
-    const product = typeof item.product === "object" ? item.product : products.find((entry) => entry._id === item.product) || {};
+    const { product } = cartMerchandise(item, products);
     const productId = getProductId(item.product) || product._id;
-    if (!productId) {
+    if (!productId && !item._id) {
       showError("Product id missing for this cart item");
       return;
     }
@@ -552,13 +480,14 @@ function CartPage({ onCartChange }) {
 
     if (!result.isConfirmed) return;
 
-    setRemovingId(productId);
+    const lineKey = cartLineKey(item);
+    setRemovingId(lineKey);
     try {
-      const updatedCart = await cartService.remove(productId);
+      const updatedCart = await cartService.remove(productId, referenceId(item.variant), item._id);
       if (updatedCart?.items) setCart(updatedCart);
       else setCart((current) => ({
         ...current,
-        items: (current.items || []).filter((entry) => (getProductId(entry.product) || entry.product) !== productId),
+        items: (current.items || []).filter((entry) => cartLineKey(entry) !== lineKey),
       }));
       onCartChange?.();
       showSuccess("Item removed from cart");
@@ -570,10 +499,10 @@ function CartPage({ onCartChange }) {
   };
 
   const updateQuantity = async (item, value) => {
-    const product = typeof item.product === "object" ? item.product : products.find((entry) => entry._id === item.product) || {};
+    const { product } = cartMerchandise(item, products);
     const productId = getProductId(item.product) || product._id;
     const currentQuantity = Number(item.quantity || 1);
-    const maxQuantity = Math.max(1, Number(product.stock || 99));
+    const maxQuantity = cartMerchandise(item, products).stock ?? 0;
     if (!productId) {
       showError("Product id missing for this cart item");
       return;
@@ -615,9 +544,9 @@ function CartPage({ onCartChange }) {
     }
     if (nextQuantity === currentQuantity) return;
 
-    setUpdatingId(productId);
+    setUpdatingId(cartLineKey(item));
     try {
-      const updatedCart = await cartService.setQuantity(productId, nextQuantity);
+      const updatedCart = await cartService.setQuantity(productId, nextQuantity, referenceId(item.variant));
       if (updatedCart?.items) setCart(updatedCart);
       else await load();
       onCartChange?.();
@@ -629,8 +558,21 @@ function CartPage({ onCartChange }) {
     }
   };
 
+  const applyCartVariant = async (item, variantId, quantity) => {
+    if (updatingId || removingId || placingOrder) return;
+    setUpdatingId(cartLineKey(item));
+    try {
+      const updatedCart = await cartService.selectVariant(item._id, variantId, quantity);
+      setCart(updatedCart || { items: [] });
+      onCartChange?.();
+      showSuccess("Cart options updated");
+    } catch (error) {
+      showError(getApiError(error, "Unable to update product options"));
+    } finally { setUpdatingId(""); }
+  };
+
   const placeOrder = async () => {
-    if (!rows.length || placingOrder) return;
+    if (!rows.length || placingOrder || updatingId || removingId || invalidRows) return;
 
     const result = await Swal.fire({
       icon: "question",
@@ -655,17 +597,19 @@ function CartPage({ onCartChange }) {
         text: order?._id ? `Order #${String(order._id).slice(-8)} has been created.` : "Your order has been created.",
         confirmButtonColor: "#14666b",
       });
+      router.push("/profile");
     } catch (error) {
       showError(getApiError(error, "Unable to place order"));
+      await load();
     } finally {
       setPlacingOrder(false);
     }
   };
 
   const rows = cart?.items || [];
+  const invalidRows = rows.some((item) => !cartMerchandise(item, products).valid);
   const total = rows.reduce((sum, item) => {
-    const product = typeof item.product === "object" ? item.product : products.find((entry) => entry._id === item.product) || {};
-    return sum + Number(product.price || 0) * Number(item.quantity || 0);
+    return sum + Number(cartMerchandise(item, products).price || 0) * Number(item.quantity || 0);
   }, 0);
 
   return (
@@ -681,53 +625,59 @@ function CartPage({ onCartChange }) {
         <section className="cart-layout">
           <div className="cart-list">
             {rows.map((item) => {
-              const product = typeof item.product === "object" ? item.product : products.find((entry) => entry._id === item.product) || {};
-              const line = Number(product.price || 0) * Number(item.quantity || 0);
-              const productId = getProductId(item.product) || product._id;
+              const { product, sku, image, options, price, stock, valid, isVariant, needsSelection, issue } = cartMerchandise(item, products);
+              const line = price === null ? null : price * Number(item.quantity || 0);
               const quantity = Number(item.quantity || 1);
               const selectValue = quantity <= 3 ? String(quantity) : String(quantity);
               return (
-                <article className="cart-item" key={item._id || getProductId(item.product)}>
-                  <div className="cart-thumb"><ImageWithFallback src={mediaUrl(product.images?.[0])} alt={product.name} iconSize={26} /></div>
+                <article className="cart-item" key={cartLineKey(item)}>
+                  <div className="cart-thumb"><ImageWithFallback key={image} src={mediaUrl(image)} alt={product.name} iconSize={26} /></div>
                   <div className="cart-product-copy">
                     <h3>{product.name || "Product"}</h3>
-                    <p>{product.sku || "SKU"}</p>
+                    {sku && <p className="cart-sku">SKU: {sku}</p>}
+                    {options && <p className="cart-selected-options">{options}</p>}
+                    {valid && <p className="cart-stock">{stock} in stock</p>}
+                    {issue && <p className="cart-item-notice" role="status">{issue}</p>}
+                    {isVariant && product._id && product.status !== "inactive" && (needsSelection
+                      ? <CartVariantPicker item={item} productId={product._id} disabled={Boolean(updatingId || removingId || placingOrder)} onApply={applyCartVariant} />
+                      : <details className="cart-change-options"><summary>Change options</summary><CartVariantPicker item={item} productId={product._id} disabled={Boolean(updatingId || removingId || placingOrder)} onApply={applyCartVariant} /></details>)}
                   </div>
-                  <span className="cart-price">{money(product.price)}</span>
-                  <label className="qty-select-wrap">
-                    <span>Qty</span>
-                    <select
-                      value={selectValue}
-                      disabled={updatingId === productId || removingId === productId}
-                      onChange={(event) => updateQuantity(item, event.target.value)}
-                    >
-                      {quantity > 3 && <option value={String(quantity)}>{quantity}</option>}
-                      <option value="1">1</option>
-                      <option value="2">2</option>
-                      <option value="3">3</option>
-                      <option value="more">More</option>
-                    </select>
-                  </label>
-                  <strong className="cart-line-total">{money(line)}</strong>
                   <button
                     type="button"
                     className="remove-cart-btn"
                     aria-label={`Remove ${product.name || "product"} from cart`}
-                    disabled={removingId === productId || updatingId === productId}
+                    disabled={Boolean(removingId || updatingId || placingOrder)}
                     onClick={() => removeItem(item)}
-                  >
-                    <Trash2 size={17} />
-                    {removingId === productId ? "Removing" : "Remove"}
-                  </button>
+                  ><Trash2 size={17} />{removingId === cartLineKey(item) ? "Removing" : "Remove"}</button>
+                  <div className="cart-item-totals">
+                  <span className="cart-price"><small>Unit price</small><b>{price === null ? needsSelection ? "Choose options" : "Unavailable" : money(price)}</b></span>
+                  <label className="qty-select-wrap">
+                    <span>Qty</span>
+                    <select
+                      value={selectValue}
+                      disabled={Boolean(updatingId || removingId || placingOrder) || !stock}
+                      onChange={(event) => updateQuantity(item, event.target.value)}
+                    >
+                      {quantity > 3 && <option value={String(quantity)}>{quantity}</option>}
+                      <option value="1" disabled={stock < 1}>1</option>
+                      <option value="2" disabled={stock < 2}>2</option>
+                      <option value="3" disabled={stock < 3}>3</option>
+                      <option value="more">More</option>
+                    </select>
+                  </label>
+                  <span className="cart-line-total"><small>Item total</small><strong>{line === null ? needsSelection ? "Choose options" : "Unavailable" : money(line)}</strong></span>
+                  </div>
                 </article>
               );
             })}
           </div>
           <aside className="summary-card">
             <h3>Order Summary</h3>
-            <div><span>Subtotal</span><strong>{money(total)}</strong></div>
+            <div><span>Items</span><strong>{rows.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}</strong></div>
+            <div><span>Subtotal</span><strong>{invalidRows ? "Check cart items" : money(total)}</strong></div>
             <div><span>Delivery</span><strong>Calculated later</strong></div>
-            <button className="primary-btn full" disabled={placingOrder || rows.length === 0} onClick={placeOrder}>
+            {invalidRows && <p className="cart-summary-notice">Choose the missing product options or update unavailable items to continue.</p>}
+            <button className="primary-btn full" disabled={Boolean(placingOrder || updatingId || removingId || invalidRows) || rows.length === 0} onClick={placeOrder}>
               {placingOrder ? "Placing order..." : "Proceed to Checkout"}
             </button>
           </aside>

@@ -1,0 +1,24 @@
+.product-option-summary { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #667085; font-size: 12px; line-height: 24px; }
+.product-footer .option-price-label { font-size: 17px; }
+.product-card .product-media img { object-fit: contain; padding: 12px; }
+.product-gallery { min-width: 0; }
+.product-gallery .detail-media { height: 500px; min-height: 0; background: #fff; padding: 24px; }
+.product-gallery .detail-media img { object-fit: contain; max-height: 100%; }
+.product-thumbnails { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.product-thumbnails button { display: grid; place-items: center; width: 72px; height: 72px; padding: 6px; border: 1px solid #d0d5dd; border-radius: 8px; background: #fff; color: #667085; }
+.product-thumbnails button[aria-pressed="true"] { border: 2px solid #2874f0; }
+.product-thumbnails img { width: 100%; height: 100%; object-fit: contain; }
+.product-type-label { justify-self: start; padding: 5px 9px; border-radius: 5px; font-size: 12px; color: #175cd3; background: #eff5ff; }
+.detail-copy .product-description { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail-copy .detail-price { font-size: clamp(23px, 3vw, 34px); }
+.detail-copy .detail-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.detail-stats b { overflow-wrap: anywhere; }
+.product-option-picker { display: grid; gap: 16px; }
+.product-option-picker fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.product-option-picker legend { margin-bottom: 8px; font-size: 14px; font-weight: 700; }
+.product-option-picker fieldset > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.product-option-picker fieldset button { min-width: 48px; min-height: 40px; padding: 8px 14px; border: 1px solid #d0d5dd; border-radius: 6px; background: #fff; color: #344054; }
+.product-option-picker button[aria-pressed="true"] { border-color: #2874f0; color: #175cd3; background: #eff5ff; }
+.product-option-picker p { margin: 0; font-size: 14px; }
+.product-option-picker button:focus-visible, .product-thumbnails button:focus-visible { outline: 3px solid #2874f0; outline-offset: 3px; }
+@media (max-width: 720px) { .product-gallery .detail-media { height: 340px; padding: 16px; } .detail-copy .buy-row { flex-wrap: wrap; } }

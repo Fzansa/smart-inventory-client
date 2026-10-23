@@ -111,9 +111,17 @@ export const productService = {
     const response = await api.get(`/products/fetch/${id}`);
     return unwrapData(response);
   },
+  async variants(id) {
+    const response = await api.get(`/variants/product/${id}`);
+    return asArray(unwrapData(response), ["variants"]);
+  },
 };
 
 export const cartService = {
+  async selectVariant(itemId, variantId, quantity) {
+    const response = await api.patch(`/cart/items/${itemId}/variant`, { variantId, ...(quantity === undefined ? {} : { quantity }) });
+    return response.data?.cart ?? unwrapData(response);
+  },
   async get() {
     const response = await api.get("/cart");
     return response.data?.cart ?? unwrapData(response) ?? { items: [] };
@@ -122,18 +130,22 @@ export const cartService = {
     const response = await api.post("/cart/add", payload);
     return response.data?.cart ?? unwrapData(response);
   },
-  async remove(productId) {
-    const response = await api.delete(`/cart/remove/${productId}`);
+  async remove(productId, variantId, itemId) {
+    const response = itemId ? await api.delete(`/cart/items/${itemId}`)
+      : await api.delete(`/cart/remove/${productId}`, { params: variantId ? { variantId } : {} });
     return response.data?.cart ?? unwrapData(response);
   },
-  async setQuantity(productId, quantity) {
-    await api.delete(`/cart/remove/${productId}`);
-    const response = await api.post("/cart/add", { productId, quantity });
+  async setQuantity(productId, quantity, variantId) {
+    const response = await api.patch(`/cart/items/${productId}`, { quantity, ...(variantId ? { variantId } : {}) });
     return response.data?.cart ?? unwrapData(response);
   },
 };
 
 export const orderService = {
+  async mine() {
+    const response = await api.get("/order", { params: { scope: "mine" } });
+    return asArray(unwrapData(response), ["orders"]);
+  },
   async create() {
     const response = await api.post("/order/create");
     return response.data?.order ?? unwrapData(response)?.order ?? unwrapData(response);
